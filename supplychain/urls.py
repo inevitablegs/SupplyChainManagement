@@ -8,6 +8,7 @@ urlpatterns = [
     path('', include('home.urls')),
     path('manufacturer/', include('manufacturer.urls')),
     path('supplier/', include('supplier.urls')),
+    path('negotiation/', include('negotiation.urls')),
 ]
 
 if settings.DEBUG:

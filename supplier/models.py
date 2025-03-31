@@ -44,5 +44,10 @@ class Bid(models.Model):
     )
     transaction_hash = models.CharField(max_length=66, blank=True, null=True)
 
+    def get_negotiation_status(self):
+        if hasattr(self, 'negotiation'):
+            return self.negotiation.get_status_display()
+        return "No negotiation"
+
     def __str__(self):
         return f"Bid for {self.quote.product} by {self.supplier.company_name}"

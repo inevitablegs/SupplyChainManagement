@@ -9,4 +9,6 @@ urlpatterns = [
     path('profile/', views.view_profile, name='supplier_profile'),
     path('profile/edit/', views.edit_profile, name='supplier_edit_profile'),
     path('manufacturer-profile/<int:manufacturer_id>/', views.view_manufacturer_profile, name='view_manufacturer_profile'),
+    path('negotiations/', views.supplier_negotiations, name='supplier_negotiations'),
+    path('negotiations/<int:negotiation_id>/', views.supplier_view_negotiation, name='supplier_view_negotiation'),
 ]

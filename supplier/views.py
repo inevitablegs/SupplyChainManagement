@@ -77,14 +77,15 @@ def supplier_dashboard(request):
     try:
         supplier = Supplier.objects.get(user=request.user)
         open_quotes = QuoteRequest.objects.filter(status='open').order_by('-created_at')
+        negotiations = Negotiation.objects.filter(
+            bid__supplier=supplier, 
+            status='active'
+        ).select_related('bid', 'bid__quote')[:5]  # Show only 5 most recent
         
         # Category filtering
         category_filter = request.GET.get('category')
         if category_filter:
             open_quotes = open_quotes.filter(category=category_filter)
-        
-        # Get all unique categories for the filter dropdown
-        categories = QuoteRequest.objects.values_list('category', flat=True).distinct()
         
         your_bids = Bid.objects.filter(supplier=supplier).select_related('quote')
         
@@ -92,12 +93,15 @@ def supplier_dashboard(request):
             'supplier': supplier,
             'open_quotes': open_quotes,
             'your_bids': your_bids,
-            'categories': categories,
-            'current_category': category_filter
+            'negotiations': negotiations,
+            'categories': QuoteRequest.objects.values_list('category', flat=True).distinct(),
+            'current_category': category_filter,
+            'now': timezone.now()
         })
     except Supplier.DoesNotExist:
         return redirect('supplier_login')
-
+    
+    
 # Update submit_bid function
 def submit_bid(request, quote_id):
     if not request.user.is_authenticated:
@@ -203,3 +207,78 @@ def view_manufacturer_profile(request, manufacturer_id):
     except Manufacturer.DoesNotExist:
         messages.error(request, "Manufacturer not found")
         return redirect('supplier_dashboard')
+    
+from django.shortcuts import render, redirect, get_object_or_404
+from negotiation.models import Negotiation, NegotiationMessage
+from negotiation.forms import CounterOfferForm
+from django.contrib import messages
+from utils.email import send_email
+from django.utils import timezone
+
+def supplier_negotiations(request):
+    if not request.user.is_authenticated:
+        return redirect('supplier_login')
+    
+    supplier = get_object_or_404(Supplier, user=request.user)
+    negotiations = Negotiation.objects.filter(bid__supplier=supplier).select_related('bid', 'bid__quote')
+    
+    return render(request, 'supplier/negotiations.html', {
+        'supplier': supplier,
+        'negotiations': negotiations,
+        'now': timezone.now()
+    })
+
+def supplier_view_negotiation(request, negotiation_id):
+    if not request.user.is_authenticated:
+        return redirect('supplier_login')
+    
+    negotiation = get_object_or_404(Negotiation, id=negotiation_id)
+    bid = negotiation.bid
+    
+    # Check if user is the supplier for this bid
+    if bid.supplier.user != request.user:
+        messages.error(request, "You don't have permission to view this negotiation")
+        return redirect('supplier_dashboard')
+    
+    # Mark unread messages as read
+    negotiation.messages.filter(is_read=False).exclude(sender=request.user).update(is_read=True)
+    
+    if request.method == 'POST':
+        form = CounterOfferForm(request.POST)
+        if form.is_valid():
+            # Create new message with counter offer
+            message = NegotiationMessage.objects.create(
+                negotiation=negotiation,
+                sender=request.user,
+                message=form.cleaned_data['message'],
+                counter_amount=form.cleaned_data['counter_amount'],
+                counter_delivery_time=form.cleaned_data['counter_delivery_time']
+            )
+            
+            # Notify manufacturer
+            send_email(
+                subject=f"Counter Offer Received for {bid.quote.product}",
+                to_email=bid.quote.manufacturer.user.email,
+                template_name="emails/counter_offer_received.html",
+                context={
+                    'manufacturer': bid.quote.manufacturer,
+                    'supplier': bid.supplier,
+                    'quote': bid.quote,
+                    'bid': bid,
+                    'negotiation': negotiation,
+                    'message': message
+                }
+            )
+            
+            messages.success(request, 'Counter offer submitted successfully!')
+            return redirect('supplier_view_negotiation', negotiation_id=negotiation.id)
+    else:
+        form = CounterOfferForm()
+    
+    return render(request, 'supplier/view_negotiation.html', {
+        'negotiation': negotiation,
+        'bid': bid,
+        'messages': negotiation.messages.all().order_by('created_at'),
+        'form': form,
+        'now': timezone.now()
+    })

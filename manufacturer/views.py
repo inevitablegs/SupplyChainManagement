@@ -80,63 +80,86 @@ def manufacturer_dashboard(request):
     except Manufacturer.DoesNotExist:
         return redirect('manufacturer_login')
 
+from django.shortcuts import redirect, get_object_or_404
+from django.contrib import messages
+from supplier.models import Bid
+from utils.email import send_email
+
 def accept_bid(request, bid_id):
     if not request.user.is_authenticated:
         return redirect('manufacturer_login')
     
     try:
-        bid = Bid.objects.get(id=bid_id)
+        bid = get_object_or_404(Bid, id=bid_id)
         quote = bid.quote
         
         # Check if the current user owns the quote
         if quote.manufacturer.user != request.user:
-            messages.error(request, "You don't have permission to accept this bid")
+            messages.error(request, "You don't have permission to manage this bid")
             return redirect('manufacturer_dashboard')
         
-        # Update bid status
-        bid.status = 'accepted'
-        bid.save()
+        # Check if this bid already has a negotiation
+        if hasattr(bid, 'negotiation'):
+            # If negotiation exists, redirect to view it
+            messages.info(request, "This bid is already in negotiation")
+            return redirect('view_negotiation', negotiation_id=bid.negotiation.id)
         
-        # Update quote status
-        quote.status = 'awarded'
-        quote.save()
+        # Check if the quote already has an accepted bid
+        if quote.accepted_bid and quote.accepted_bid != bid:
+            messages.error(request, "This quote already has an accepted bid")
+            return redirect('view_quote_bids', quote_id=quote.id)
         
-        # Reject other bids for this quote
-        Bid.objects.filter(quote=quote).exclude(id=bid_id).update(status='rejected')
-        
-        # Send notification to supplier
-        send_email(
-            subject=f"Your Bid for {quote.product} Has Been Accepted",
-            to_email=bid.supplier.user.email,
-            template_name="emails/bid_status_update.html",
-            context={
-                'supplier': bid.supplier,
-                'manufacturer': quote.manufacturer,
-                'quote': quote,
-                'bid': bid
-            }
-        )
-        
-        # Send notifications to rejected suppliers
-        rejected_bids = Bid.objects.filter(quote=quote, status='rejected')
-        for rejected_bid in rejected_bids:
+        # Check if this is a direct acceptance (no negotiation)
+        if 'direct_accept' in request.GET:
+            # Direct acceptance without negotiation
+            bid.status = 'accepted'
+            bid.save()
+            
+            # Update quote status
+            quote.status = 'awarded'
+            quote.accepted_bid = bid
+            quote.save()
+            
+            # Reject other bids for this quote
+            Bid.objects.filter(quote=quote).exclude(id=bid_id).update(status='rejected')
+            
+            # Send notification to supplier
             send_email(
-                subject=f"Your Bid for {quote.product} Has Been Rejected",
-                to_email=rejected_bid.supplier.user.email,
+                subject=f"Your Bid for {quote.product} Has Been Accepted",
+                to_email=bid.supplier.user.email,
                 template_name="emails/bid_status_update.html",
                 context={
-                    'supplier': rejected_bid.supplier,
+                    'supplier': bid.supplier,
                     'manufacturer': quote.manufacturer,
                     'quote': quote,
-                    'bid': rejected_bid
+                    'bid': bid
                 }
             )
-        
-        messages.success(request, 'Bid accepted successfully!')
+            
+            # Send notifications to rejected suppliers
+            rejected_bids = Bid.objects.filter(quote=quote, status='rejected')
+            for rejected_bid in rejected_bids:
+                send_email(
+                    subject=f"Your Bid for {quote.product} Has Been Rejected",
+                    to_email=rejected_bid.supplier.user.email,
+                    template_name="emails/bid_status_update.html",
+                    context={
+                        'supplier': rejected_bid.supplier,
+                        'manufacturer': quote.manufacturer,
+                        'quote': quote,
+                        'bid': rejected_bid
+                    }
+                )
+            
+            messages.success(request, 'Bid accepted successfully!')
+            return redirect('manufacturer_dashboard')
+        else:
+            # Redirect to start negotiation
+            return redirect('start_negotiation', bid_id=bid.id)
+            
     except Bid.DoesNotExist:
         messages.error(request, 'Bid not found')
-    
-    return redirect('manufacturer_dashboard')
+        return redirect('manufacturer_dashboard')
 
 
 

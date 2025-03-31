@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'manufacturer',
     'supplier',
     'home',
+    'negotiation',
 ]
 
 MIDDLEWARE = [

@@ -82,12 +82,15 @@
                 {% endif %}
                 
                 {% if bid.status == 'submitted' and quote.status == 'open' %}
-                <form method="post" action="{% url 'accept_bid' bid.id %}">
-                    {% csrf_token %}
-                    <button type="submit" class="accept-btn">Accept Bid</button>
-                </form>
+                <div class="action-buttons">
+                    <form method="post" action="{% url 'direct_accept_bid' bid.id %}" style="display: inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="accept-btn">Accept Bid</button>
+                    </form>
+                    <a href="{% url 'start_negotiation' bid.id %}" class="negotiate-btn">Negotiate</a>
+                </div>
                 {% endif %}
-                
+
                 <small>Submitted on {{ bid.submitted_at|date:"M d, Y" }}</small>
             </div>
             {% endfor %}
